@@ -1,5 +1,11 @@
 # ──────────────────────────────────────────────────────────────
 # CI/CD Pipeline — Bazaar Microservice
+#
+# Secrets required in GitHub repository settings:
+#   DIGITALOCEAN_ACCESS_TOKEN  — DigitalOcean API token
+#   DB_USER                    — PostgreSQL username
+#   DB_PASSWORD                — PostgreSQL password
+#   DB_NAME                    — PostgreSQL database name
 # ──────────────────────────────────────────────────────────────
 name: CI/CD
 
@@ -88,61 +94,79 @@ jobs:
         run: docker compose -f docker-compose.test.yml down -v
 
   # ── 3. Build & Push Docker image ───────────────────
-  # build:
-  #   name: Build & Push
-  #   needs: [lint, test]
-  #   runs-on: ubuntu-latest
-  #   if: (github.ref == 'refs/heads/main' && github.event_name == 'push') || (github.event_name == 'workflow_dispatch' && inputs.run_image_push)
-  
+  build:
+    name: Build & Push
+    needs: [lint, test]
+    runs-on: ubuntu-latest
+    if: (github.ref == 'refs/heads/main' && github.event_name == 'push') || (github.event_name == 'workflow_dispatch' && inputs.run_image_push)
 
-  #   steps:
-  #     - uses: actions/checkout@v4
+    steps:
+      - uses: actions/checkout@v4
 
-  #     - name: Log in to GHCR
-  #       uses: docker/login-action@v3
-  #       with:
-  #         registry: ghcr.io
-  #         username: ${{ github.actor }}
-  #         password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-  #     - name: Build and push
-  #       uses: docker/build-push-action@v5
-  #       with:
-  #         context: .
-  #         push: true
-  #         tags: |
-  #           ${{ env.IMAGE_NAME }}:${{ github.sha }}
-  #           ${{ env.IMAGE_NAME }}:latest
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.IMAGE_NAME }}:${{ github.sha }}
+            ${{ env.IMAGE_NAME }}:latest
 
   # ── 4. Deploy to Kubernetes  ────────────────────────
+  deploy:
+    name: Deploy to K8s
+    needs: build
+    runs-on: ubuntu-latest
+    if: (github.ref == 'refs/heads/main' && github.event_name == 'push') || (github.event_name == 'workflow_dispatch' && inputs.run_deploy)
 
-  # deploy:
-  #   name: Deploy to K8s
-  #   needs: build
-  #   runs-on: ubuntu-latest
-  #   if: github.ref == 'refs/heads/main' && github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.run_deploy)
-  
-  #   steps:
-  #     - uses: actions/checkout@v4
+    steps:
+      - uses: actions/checkout@v4
 
-  #     - name: Install doctl
-  #       uses: digitalocean/action-doctl@v2
-  #       with:
-  #         token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+      - name: Install doctl
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
 
-  #     - name: Configure kubectl
-  #       run: doctl kubernetes cluster kubeconfig save e6683ee9-809c-4ab1-a965-bc55aba1ec4a
-  
-  #     - name: Update Kubernetes manifests and deploy
-  #       env:
-  #         IMAGE_TAG: ${{ github.sha }}
-  #         IMAGE_NAME: ${{ env.IMAGE_NAME }}
-  #         DB_USER: ${{ secrets.DB_USER }}
-  #         DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
-  #         DB_NAME: ${{ secrets.DB_NAME }}
-  #       run: |
-  #         sudo apt-get install -y gettext-base
-  #         for f in k8s/*.yaml; do
-  #           envsubst '${IMAGE_NAME} ${IMAGE_TAG} ${DB_USER} ${DB_PASSWORD} ${DB_NAME}' \
-  #             < "$f" | kubectl apply -f - -n bazaar-dev
-  #         done
+      - name: Configure kubectl
+        run: doctl kubernetes cluster kubeconfig save e6683ee9-809c-4ab1-a965-bc55aba1ec4a
+
+      - name: Create namespace if not exists
+        run: |
+          kubectl create namespace bazaar-dev --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Apply DB credentials secret
+        env:
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_NAME: ${{ secrets.DB_NAME }}
+        run: |
+          sudo apt-get install -y gettext-base
+          envsubst '${DB_USER} ${DB_PASSWORD} ${DB_NAME}' \
+            < k8s/secret.yaml | kubectl apply -f - -n bazaar-dev
+
+      - name: Apply infrastructure manifests
+        run: |
+          kubectl apply -f k8s/db-pvc.yaml -n bazaar-dev
+          kubectl apply -f k8s/db-deployment.yaml -n bazaar-dev
+          kubectl apply -f k8s/db-service.yaml -n bazaar-dev
+          kubectl apply -f k8s/app-service.yaml -n bazaar-dev
+
+      - name: Deploy application
+        env:
+          IMAGE_NAME: ${{ env.IMAGE_NAME }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          envsubst '${IMAGE_NAME} ${IMAGE_TAG}' \
+            < k8s/app-deployment.yaml | kubectl apply -f - -n bazaar-dev
+
+      - name: Wait for rollout
+        run: |
+          kubectl rollout status deployment/notifications-service \
+            -n bazaar-dev --timeout=120s
