@@ -68,8 +68,14 @@ spec:
             httpGet:
               path: /livez
               port: 8000
-            initialDelaySeconds: 5
+            initialDelaySeconds: 30
             periodSeconds: 10
+          startupProbe:
+            httpGet:
+              path: /livez
+              port: 8000
+            periodSeconds: 5
+            failureThreshold: 30
           readinessProbe:
             httpGet:
               path: /readyz
