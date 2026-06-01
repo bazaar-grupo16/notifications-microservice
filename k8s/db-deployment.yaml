@@ -76,8 +76,8 @@ spec:
               cpu: 10m
               memory: 32Mi
             limits:
-              cpu: 500m
-              memory: 512Mi
+              cpu: 250m
+              memory: 256Mi
           # ── Persistent Storage ──────────────────────
           volumeMounts:
             - name: postgres-data
