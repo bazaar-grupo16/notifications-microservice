@@ -4,9 +4,9 @@
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: bazaar-db-pvc
+  name: notifications-db-pvc
   labels:
-    app: bazaar-db
+    app: notifications-db
 spec:
   accessModes:
     - ReadWriteOnce

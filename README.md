@@ -127,8 +127,8 @@ docker compose -f docker-compose.test.yml up --build --abort-on-container-exit
 ## Docker
 
 ```bash
-docker build -t template-service .
-docker run -p 8000:8000 --env-file .env template-service
+docker build -t notifications-service .
+docker run -p 8000:8000 --env-file .env notifications-service
 ```
 
 ## Kubernetes
@@ -144,7 +144,7 @@ Los manifiestos en `k8s/` despliegan el microservicio junto con su propia base d
 | `DB_PASSWORD` | Contraseña de la base de datos |
 | `DB_NAME` | Nombre de la base de datos |
 
-`DB_HOST` y `DB_PORT` están fijos en `k8s/secret.yaml` (`bazaar-db:5432`) ya que la BD corre dentro del cluster.
+`DB_HOST` y `DB_PORT` están fijos en `k8s/secret.yaml` (`notifications-db:5432`) ya que la BD corre dentro del cluster.
 Si se utilizase una base de datos externa, se deberían agregar las variables de entorno correspondientes.
 
 ### Deploy manual

@@ -4,26 +4,26 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: template-service
+  name: notifications-service
   labels:
-    app: template-service
+    app: notifications-service
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: template-service
+      app: notifications-service
   template:
     metadata:
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/port: "8000"
       labels:
-        app: template-service
+        app: notifications-service
     spec:
       imagePullSecrets:
         - name: ghcr-login-secret
       containers:
-        - name: template-service
+        - name: notifications-service
           image: $IMAGE_NAME:$IMAGE_TAG
           ports:
             - containerPort: 8000
@@ -32,34 +32,34 @@ spec:
             - name: DB_HOST
               valueFrom:
                 secretKeyRef:
-                  name: bazaar-db-credentials
+                  name: notifications-db-credentials
                   key: DB_HOST
             - name: DB_PORT
               valueFrom:
                 secretKeyRef:
-                  name: bazaar-db-credentials
+                  name: notifications-db-credentials
                   key: DB_PORT
             - name: DB_USER
               valueFrom:
                 secretKeyRef:
-                  name: bazaar-db-credentials
+                  name: notifications-db-credentials
                   key: DB_USER
             - name: DB_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: bazaar-db-credentials
+                  name: notifications-db-credentials
                   key: DB_PASSWORD
             - name: DB_NAME
               valueFrom:
                 secretKeyRef:
-                  name: bazaar-db-credentials
+                  name: notifications-db-credentials
                   key: DB_NAME
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: "http://otel-collector:4317"
             - name: OTEL_EXPORTER_OTLP_PROTOCOL
               value: "grpc"
             - name: OTEL_SERVICE_NAME
-              value: template-service
+              value: notifications-service
             - name: OTEL_RESOURCE_ATTRIBUTES
               value: "deployment.environment=dev,k8s.cluster.name=bazaar-dev"
             - name: OTEL_PROPAGATORS

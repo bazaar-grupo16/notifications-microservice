@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     """Centralised configuration for the microservice."""
 
     # ── Application ──────────────────────────────────
-    APP_NAME: str = "template-service"
+    APP_NAME: str = "notifications-service"
     LOG_LEVEL: str = "info"
 
     # ── Database ─────────────────────────────────────

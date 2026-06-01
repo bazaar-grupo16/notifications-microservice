@@ -4,13 +4,13 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: bazaar-db
+  name: notifications-db
   labels:
-    app: bazaar-db
+    app: notifications-db
 spec:
   type: ClusterIP
   selector:
-    app: bazaar-db
+    app: notifications-db
   ports:
     - protocol: TCP
       port: 5432

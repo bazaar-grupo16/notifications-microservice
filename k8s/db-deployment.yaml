@@ -4,21 +4,21 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: bazaar-db
+  name: notifications-db
   labels:
-    app: bazaar-db
+    app: notifications-db
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: bazaar-db
+      app: notifications-db
   template:
     metadata:
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/port: "5432"
       labels:
-        app: bazaar-db
+        app: notifications-db
     spec:
       containers:
         - name: postgres
@@ -30,17 +30,17 @@ spec:
             - name: POSTGRES_USER
               valueFrom:
                 secretKeyRef:
-                  name: bazaar-db-credentials
+                  name: notifications-db-credentials
                   key: DB_USER
             - name: POSTGRES_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: bazaar-db-credentials
+                  name: notifications-db-credentials
                   key: DB_PASSWORD
             - name: POSTGRES_DB
               valueFrom:
                 secretKeyRef:
-                  name: bazaar-db-credentials
+                  name: notifications-db-credentials
                   key: DB_NAME
             - name: PGDATA
               value: /var/lib/postgresql/data/pgdata
@@ -49,7 +49,7 @@ spec:
             - name: OTEL_EXPORTER_OTLP_PROTOCOL
               value: "grpc"
             - name: OTEL_SERVICE_NAME
-              value: bazaar-db
+              value: notifications-db
             - name: OTEL_RESOURCE_ATTRIBUTES
               value: "deployment.environment=dev,k8s.cluster.name=bazaar-dev"
             - name: OTEL_PROPAGATORS
@@ -85,4 +85,4 @@ spec:
       volumes:
         - name: postgres-data
           persistentVolumeClaim:
-            claimName: bazaar-db-pvc
+            claimName: notifications-db-pvc
