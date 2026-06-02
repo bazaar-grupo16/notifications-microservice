@@ -24,6 +24,11 @@ class Settings(BaseSettings):
     DB_PASSWORD: str
     DB_NAME: str
 
+    # ── Notifications worker ─────────────────────────
+    NOTIFICATION_WORKER_ENABLED: bool = True
+    NOTIFICATION_WORKER_INTERVAL_SECONDS: float = 10.0
+    NOTIFICATION_WORKER_BATCH_SIZE: int = 10
+
     # ── Pydantic-settings config ─────────────────────
     model_config = SettingsConfigDict(
         env_file=".env",
