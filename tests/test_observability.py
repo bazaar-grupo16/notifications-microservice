@@ -11,17 +11,6 @@ from opentelemetry.trace import NonRecordingSpan, SpanContext, TraceFlags, Trace
 from src.core import observability
 
 
-def product_form(**overrides: object) -> dict[str, object]:
-    data: dict[str, object] = {
-        "title": "Mechanical Keyboard",
-        "description": "Compact keyboard with tactile switches",
-        "price": "129.90",
-        "stock": "8",
-        "category": "Peripherals",
-    }
-    data.update({key: str(value) for key, value in overrides.items()})
-    return data
-
 class TestObservability:
     def test_uses_otel_trace_id_when_a_span_is_active(self, client: TestClient) -> None:
         trace_id = int("1234567890abcdef1234567890abcdef", 16)
@@ -75,6 +64,7 @@ class TestObservability:
             "X-Request-ID": "1234567890abcdef1234567890abcdef",
             "X-Correlation-ID": "1234567890abcdef1234567890abcdef",
         }
+
 
 class TestMetricsEndpoint:
     def test_returns_prometheus_text(self, client: TestClient) -> None:

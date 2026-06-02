@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from src.core.observability import get_observability_correlation_id
 from src.models.notification import Notification
 from src.repositories.notification_repository import NotificationRepository
 from src.schemas.notification import NotificationCreate
@@ -41,6 +42,7 @@ class NotificationService:
             title=data.title,
             body=data.body,
             payload=data.payload,
+            correlation_id=get_observability_correlation_id(),
             status="pending",
         )
 

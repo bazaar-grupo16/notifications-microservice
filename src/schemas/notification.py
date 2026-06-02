@@ -38,6 +38,7 @@ class NotificationResponse(BaseModel):
     title: str
     body: str
     payload: dict[str, Any]
+    correlation_id: str | None
     status: NotificationStatus
     attempts: int
     last_error: str | None
