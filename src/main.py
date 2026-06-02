@@ -36,6 +36,8 @@ def _process_notifications_once() -> int:
         return process_pending_notifications(
             db,
             limit=settings.NOTIFICATION_WORKER_BATCH_SIZE,
+            max_attempts=settings.NOTIFICATION_MAX_ATTEMPTS,
+            retry_delay_seconds=settings.NOTIFICATION_RETRY_DELAY_SECONDS,
         )
 
 

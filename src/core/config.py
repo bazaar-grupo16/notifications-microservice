@@ -28,6 +28,8 @@ class Settings(BaseSettings):
     NOTIFICATION_WORKER_ENABLED: bool = True
     NOTIFICATION_WORKER_INTERVAL_SECONDS: float = 10.0
     NOTIFICATION_WORKER_BATCH_SIZE: int = 10
+    NOTIFICATION_MAX_ATTEMPTS: int = 3
+    NOTIFICATION_RETRY_DELAY_SECONDS: float = 30.0
 
     # ── Pydantic-settings config ─────────────────────
     model_config = SettingsConfigDict(

@@ -1,6 +1,7 @@
 """Lightweight worker for processing pending notifications."""
 
 import logging
+from datetime import timedelta
 from typing import Protocol
 
 from sqlalchemy.orm import Session
@@ -46,23 +47,32 @@ def process_pending_notifications(
     db: Session,
     *,
     limit: int = 10,
+    max_attempts: int = 3,
+    retry_delay_seconds: float = 30.0,
     sender: NotificationSender | None = None,
 ) -> int:
     """Process pending notifications and return how many were handled."""
     repository = NotificationRepository(db)
     notification_sender = sender or SimulatedNotificationSender()
-    notifications = repository.list_pending(limit=limit)
+    notifications = repository.list_pending(limit=limit, ready_at=utc_now())
 
     processed = 0
     for notification in notifications:
         notification.attempts += 1
         notification.last_error = None
+        notification.next_retry_at = None
 
         try:
             notification_sender.send(notification)
         except Exception as exc:
-            notification.status = "failed"
             notification.last_error = str(exc)
+            if notification.attempts >= max_attempts:
+                notification.status = "failed"
+            else:
+                notification.status = "pending"
+                notification.next_retry_at = utc_now() + timedelta(
+                    seconds=retry_delay_seconds
+                )
             logger.exception(
                 "Notification processing failed",
                 extra=_notification_log_context(notification),

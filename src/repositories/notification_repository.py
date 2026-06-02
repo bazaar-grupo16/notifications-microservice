@@ -1,6 +1,8 @@
 """Database access for notifications."""
 
-from sqlalchemy import select
+from datetime import datetime
+
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from src.models.notification import Notification
@@ -26,11 +28,17 @@ class NotificationRepository:
         self._db.refresh(notification)
         return notification
 
-    def list_pending(self, limit: int) -> list[Notification]:
-        """Return pending notifications in creation order."""
+    def list_pending(self, limit: int, *, ready_at: datetime) -> list[Notification]:
+        """Return pending notifications ready to be processed."""
         stmt = (
             select(Notification)
             .where(Notification.status == "pending")
+            .where(
+                or_(
+                    Notification.next_retry_at.is_(None),
+                    Notification.next_retry_at <= ready_at,
+                )
+            )
             .order_by(Notification.created_at.asc(), Notification.id.asc())
             .limit(limit)
         )
