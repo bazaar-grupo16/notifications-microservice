@@ -15,12 +15,14 @@ from prometheus_client import REGISTRY, generate_latest
 
 router = APIRouter(tags=["Metrics"])
 
+
 @router.get("/metrics", include_in_schema=False)
 async def metrics_endpoint() -> Response:
     return Response(
         content=render_prometheus_metrics(),
         media_type="text/plain; version=0.0.4",
     )
+
 
 def _get_deployment_environment() -> str:
     resource_attributes = os.getenv("OTEL_RESOURCE_ATTRIBUTES", "")
@@ -38,7 +40,7 @@ def build_resource() -> Resource:
     """Build the shared OpenTelemetry resource from environment variables."""
     return Resource.create(
         {
-            SERVICE_NAME: os.getenv("OTEL_SERVICE_NAME", "catalog"),
+            SERVICE_NAME: os.getenv("OTEL_SERVICE_NAME", "notifications-service"),
             "deployment.environment": _get_deployment_environment(),
         }
     )
@@ -58,4 +60,3 @@ def initialize_prometheus_metrics() -> MeterProvider:
 def render_prometheus_metrics() -> bytes:
     """Render the default Prometheus registry in text format."""
     return generate_latest(REGISTRY)
-    
