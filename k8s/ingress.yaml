@@ -8,7 +8,7 @@ metadata:
     nginx.ingress.kubernetes.io/use-regex: "true"
     nginx.ingress.kubernetes.io/enable-cors: "true"
     nginx.ingress.kubernetes.io/cors-allow-origin: "*"
-    nginx.ingress.kubernetes.io/cors-allow-methods: "GET, PATCH, OPTIONS"
+    nginx.ingress.kubernetes.io/cors-allow-methods: "GET, POST, PATCH, DELETE, OPTIONS"
     nginx.ingress.kubernetes.io/cors-allow-headers: "Content-Type, Authorization"
     nginx.ingress.kubernetes.io/auth-url: "http://auth-service.bazaar-dev.svc.cluster.local/validate"
     nginx.ingress.kubernetes.io/auth-method: "GET"
@@ -39,6 +39,20 @@ spec:
                 port:
                   number: 80
           - path: /notifications/[0-9]+/read/?$
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: notifications-service
+                port:
+                  number: 80
+          - path: /notifications/push-tokens/?$
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: notifications-service
+                port:
+                  number: 80
+          - path: /notifications/push-tokens/[^/]+/?$
             pathType: ImplementationSpecific
             backend:
               service:

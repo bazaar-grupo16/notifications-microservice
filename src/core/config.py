@@ -30,6 +30,9 @@ class Settings(BaseSettings):
     NOTIFICATION_WORKER_BATCH_SIZE: int = 10
     NOTIFICATION_MAX_ATTEMPTS: int = 3
     NOTIFICATION_RETRY_DELAY_SECONDS: float = 30.0
+    NOTIFICATION_SENDER: str = "simulated"
+    EXPO_PUSH_API_URL: str = "https://exp.host/--/api/v2/push/send"
+    EXPO_PUSH_ACCESS_TOKEN: str = ""
 
     # ── Pydantic-settings config ─────────────────────
     model_config = SettingsConfigDict(

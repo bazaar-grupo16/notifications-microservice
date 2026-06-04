@@ -4,10 +4,13 @@ import logging
 from datetime import timedelta
 from typing import Protocol
 
+import httpx
 from sqlalchemy.orm import Session
 
+from src.core.config import get_settings
 from src.core.utils import utc_now
 from src.models.notification import Notification
+from src.repositories.push_token_repository import PushTokenRepository
 from src.repositories.notification_repository import NotificationRepository
 
 logger = logging.getLogger(__name__)
@@ -43,6 +46,95 @@ class SimulatedNotificationSender:
         )
 
 
+class ExpoPushNotificationSender:
+    """Send notifications through Expo Push Notifications."""
+
+    _PERMANENT_TOKEN_ERRORS = {
+        "DeviceNotRegistered",
+        "InvalidCredentials",
+        "MessageTooBig",
+        "MessageRateExceeded",
+    }
+
+    def __init__(self, db: Session) -> None:
+        self._db = db
+        self._push_tokens = PushTokenRepository(db)
+        self._settings = get_settings()
+
+    def send(self, notification: Notification) -> None:
+        """Send a notification to all enabled recipient tokens."""
+        tokens = self._push_tokens.list_enabled_by_recipient(notification.recipient_id)
+        if not tokens:
+            logger.info(
+                "No enabled push tokens for notification recipient",
+                extra=_notification_log_context(notification),
+            )
+            return
+
+        messages = [
+            {
+                "to": token.expo_push_token,
+                "title": notification.title,
+                "body": notification.body,
+                "data": notification.payload,
+            }
+            for token in tokens
+        ]
+        headers = {"Content-Type": "application/json"}
+        if self._settings.EXPO_PUSH_ACCESS_TOKEN:
+            headers["Authorization"] = (
+                f"Bearer {self._settings.EXPO_PUSH_ACCESS_TOKEN}"
+            )
+
+        response = httpx.post(
+            self._settings.EXPO_PUSH_API_URL,
+            json=messages,
+            headers=headers,
+            timeout=5.0,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        tickets = payload.get("data", payload)
+        if isinstance(tickets, dict):
+            tickets = [tickets]
+        if not isinstance(tickets, list):
+            raise RuntimeError("Unexpected Expo push response shape")
+
+        transient_errors: list[str] = []
+        for token, ticket in zip(tokens, tickets, strict=False):
+            if not isinstance(ticket, dict):
+                transient_errors.append("invalid-ticket")
+                continue
+            if ticket.get("status") == "ok":
+                continue
+
+            details = ticket.get("details") or {}
+            error_code = details.get("error") if isinstance(details, dict) else None
+            message = str(ticket.get("message") or error_code or "Expo push failed")
+            if error_code in self._PERMANENT_TOKEN_ERRORS:
+                token.enabled = False
+                self._push_tokens.save(token)
+                logger.warning(
+                    "Disabled push token after permanent Expo error",
+                    extra={
+                        **_notification_log_context(notification),
+                        "expo_error": error_code,
+                    },
+                )
+            else:
+                transient_errors.append(message)
+
+        if transient_errors:
+            raise RuntimeError("; ".join(transient_errors))
+
+
+def _build_sender(db: Session) -> NotificationSender:
+    """Build the configured notification sender."""
+    if get_settings().NOTIFICATION_SENDER.lower() == "expo":
+        return ExpoPushNotificationSender(db)
+    return SimulatedNotificationSender()
+
+
 def process_pending_notifications(
     db: Session,
     *,
@@ -53,7 +145,7 @@ def process_pending_notifications(
 ) -> int:
     """Process pending notifications and return how many were handled."""
     repository = NotificationRepository(db)
-    notification_sender = sender or SimulatedNotificationSender()
+    notification_sender = sender or _build_sender(db)
     notifications = repository.list_pending(limit=limit, ready_at=utc_now())
 
     processed = 0
