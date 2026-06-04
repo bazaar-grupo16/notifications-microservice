@@ -4,7 +4,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
 
 
 class NotificationStatus(StrEnum):
@@ -89,5 +89,33 @@ class NotificationResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     sent_at: datetime | None
+    read_at: datetime | None
+
+    @computed_field
+    @property
+    def is_read(self) -> bool:
+        """Whether the notification was read by the recipient."""
+        return self.read_at is not None
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+
+class NotificationListResponse(BaseModel):
+    """Paginated notification list response."""
+
+    data: list[NotificationResponse]
+    total: int
+    limit: int
+    offset: int
+
+
+class NotificationUnreadCountResponse(BaseModel):
+    """Unread notifications count response."""
+
+    unread_count: int
+
+
+class NotificationsReadAllResponse(BaseModel):
+    """Bulk read operation response."""
+
+    updated_count: int

@@ -1,12 +1,15 @@
 """HTTP routes for internal notification events."""
 
-from fastapi import APIRouter, Response, status
+from fastapi import APIRouter, HTTPException, Query, Response, status
 
-from src.core.dependencies import DbSession
+from src.core.dependencies import CurrentUserId, DbSession
 from src.schemas.notification import (
     LowStockNotificationCreate,
+    NotificationListResponse,
     NotificationCreate,
     NotificationResponse,
+    NotificationsReadAllResponse,
+    NotificationUnreadCountResponse,
     OrderStatusChangedNotificationCreate,
     OutOfStockNotificationCreate,
 )
@@ -24,6 +27,82 @@ def _response_from_result(
     if not result.created:
         response.status_code = status.HTTP_200_OK
     return NotificationResponse.model_validate(result.notification)
+
+
+@router.get(
+    "/me",
+    response_model=NotificationListResponse,
+)
+def list_my_notifications(
+    db: DbSession,
+    current_user_id: CurrentUserId,
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+) -> NotificationListResponse:
+    """List notifications for the authenticated recipient."""
+    notifications, total = NotificationService(db).list_notifications_for_recipient(
+        str(current_user_id),
+        limit=limit,
+        offset=offset,
+    )
+    return NotificationListResponse(
+        data=[NotificationResponse.model_validate(item) for item in notifications],
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.get(
+    "/me/unread-count",
+    response_model=NotificationUnreadCountResponse,
+)
+def get_my_unread_count(
+    db: DbSession,
+    current_user_id: CurrentUserId,
+) -> NotificationUnreadCountResponse:
+    """Return unread notifications count for the authenticated recipient."""
+    unread_count = NotificationService(db).count_unread_for_recipient(
+        str(current_user_id)
+    )
+    return NotificationUnreadCountResponse(unread_count=unread_count)
+
+
+@router.patch(
+    "/read-all",
+    response_model=NotificationsReadAllResponse,
+)
+def mark_all_my_notifications_as_read(
+    db: DbSession,
+    current_user_id: CurrentUserId,
+) -> NotificationsReadAllResponse:
+    """Mark all authenticated recipient notifications as read."""
+    updated_count = NotificationService(db).mark_all_notifications_as_read(
+        str(current_user_id)
+    )
+    return NotificationsReadAllResponse(updated_count=updated_count)
+
+
+@router.patch(
+    "/{notification_id}/read",
+    response_model=NotificationResponse,
+)
+def mark_my_notification_as_read(
+    notification_id: int,
+    db: DbSession,
+    current_user_id: CurrentUserId,
+) -> NotificationResponse:
+    """Mark one authenticated recipient notification as read."""
+    notification = NotificationService(db).mark_notification_as_read(
+        notification_id,
+        str(current_user_id),
+    )
+    if notification is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Notification not found",
+        )
+    return NotificationResponse.model_validate(notification)
 
 
 @router.post(
