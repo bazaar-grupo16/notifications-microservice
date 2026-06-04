@@ -141,6 +141,26 @@ La app consulta `GET /notifications/me` usando el header `X-User-Id` inyectado
 por el gateway/auth. Esto permite mostrar campanita, historial y contador de no
 leídas aun sin push real.
 
+En Kubernetes, estos endpoints se exponen mediante `k8s/ingress.yaml` como rutas
+públicas autenticadas:
+
+- `GET /notifications/me`
+- `GET /notifications/me/unread-count`
+- `PATCH /notifications/{notification_id}/read`
+- `PATCH /notifications/read-all`
+
+El Ingress valida el JWT contra `auth-service /validate` y reenvía `X-User-ID`
+al pod. Desde la app se consume con `Authorization: Bearer <token>`:
+
+```bash
+curl -H "Authorization: Bearer <token>" \
+  "http://bazaar.pib.ar/notifications/me?limit=20&offset=0"
+```
+
+Los endpoints `POST /notifications/*` no se exponen por Ingress. Siguen siendo
+internos y se consumen únicamente dentro del cluster vía
+`http://notifications-service`.
+
 ### Camino futuro con FCM
 
 Firebase Cloud Messaging no reemplaza el historial. En una etapa posterior la
@@ -207,6 +227,7 @@ kubectl apply -f k8s/db-service.yaml    -n bazaar-dev
 kubectl apply -f k8s/secret.yaml        -n bazaar-dev
 kubectl apply -f k8s/app-deployment.yaml -n bazaar-dev
 kubectl apply -f k8s/app-service.yaml   -n bazaar-dev
+kubectl apply -f k8s/ingress.yaml       -n bazaar-dev
 ```
 
 ### CI/CD automático

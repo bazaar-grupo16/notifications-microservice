@@ -1,0 +1,47 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: notifications-ingress
+  namespace: bazaar-dev
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+    nginx.ingress.kubernetes.io/cors-allow-origin: "*"
+    nginx.ingress.kubernetes.io/cors-allow-methods: "GET, PATCH, OPTIONS"
+    nginx.ingress.kubernetes.io/cors-allow-headers: "Content-Type, Authorization"
+    nginx.ingress.kubernetes.io/auth-url: "http://auth-service.bazaar-dev.svc.cluster.local/validate"
+    nginx.ingress.kubernetes.io/auth-method: "GET"
+    nginx.ingress.kubernetes.io/auth-response-headers: "X-User-ID"
+spec:
+  rules:
+    - http:
+        paths:
+          - path: /notifications/me/?$
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: notifications-service
+                port:
+                  number: 80
+          - path: /notifications/me/unread-count/?$
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: notifications-service
+                port:
+                  number: 80
+          - path: /notifications/read-all/?$
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: notifications-service
+                port:
+                  number: 80
+          - path: /notifications/[0-9]+/read/?$
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: notifications-service
+                port:
+                  number: 80
