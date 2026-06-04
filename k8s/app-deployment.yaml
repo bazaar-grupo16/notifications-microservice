@@ -54,6 +54,12 @@ spec:
                 secretKeyRef:
                   name: notifications-db-credentials
                   key: DB_NAME
+            - name: NOTIFICATION_SENDER
+              value: "expo"
+            - name: EXPO_PUSH_API_URL
+              value: "https://exp.host/--/api/v2/push/send"
+            - name: EXPO_PUSH_ACCESS_TOKEN
+              value: ""
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: "http://otel-collector:4317"
             - name: OTEL_EXPORTER_OTLP_PROTOCOL

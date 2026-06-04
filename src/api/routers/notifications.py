@@ -12,9 +12,13 @@ from src.schemas.notification import (
     NotificationUnreadCountResponse,
     OrderStatusChangedNotificationCreate,
     OutOfStockNotificationCreate,
+    PushTokenCreate,
+    PushTokenDeleteResponse,
+    PushTokenResponse,
 )
 from src.services.notification_service import NotificationCreationResult
 from src.services.notification_service import NotificationService
+from src.services.push_token_service import PushTokenService
 
 router = APIRouter(prefix="/notifications", tags=["Notifications"])
 
@@ -103,6 +107,41 @@ def mark_my_notification_as_read(
             detail="Notification not found",
         )
     return NotificationResponse.model_validate(notification)
+
+
+@router.post(
+    "/push-tokens",
+    response_model=PushTokenResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def register_my_push_token(
+    data: PushTokenCreate,
+    db: DbSession,
+    current_user_id: CurrentUserId,
+) -> PushTokenResponse:
+    """Register or reactivate an Expo push token for the authenticated recipient."""
+    push_token = PushTokenService(db).register_push_token(
+        str(current_user_id),
+        data,
+    )
+    return PushTokenResponse.model_validate(push_token)
+
+
+@router.delete(
+    "/push-tokens/{expo_push_token}",
+    response_model=PushTokenDeleteResponse,
+)
+def disable_my_push_token(
+    expo_push_token: str,
+    db: DbSession,
+    current_user_id: CurrentUserId,
+) -> PushTokenDeleteResponse:
+    """Disable a recipient-owned Expo push token."""
+    disabled = PushTokenService(db).disable_push_token(
+        str(current_user_id),
+        expo_push_token,
+    )
+    return PushTokenDeleteResponse(disabled=disabled)
 
 
 @router.post(

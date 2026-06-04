@@ -22,6 +22,7 @@ from src.core.logging import setup_logging
 from src.core.observability import CorrelationIdMiddleware
 from src.core.telemetry import initialize_prometheus_metrics, router as metrics_router
 import src.models.notification  # noqa: F401
+import src.models.notification_push_token  # noqa: F401
 from src.services.notification_worker import process_pending_notifications
 
 settings = get_settings()
