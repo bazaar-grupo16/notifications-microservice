@@ -2,6 +2,7 @@
 
 import pytest
 from sqlalchemy import delete, func, select
+from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
@@ -60,6 +61,8 @@ class TestCreateNotification:
         assert body["status"] == "pending"
         assert body["attempts"] == 0
         assert body["sent_at"] is None
+        assert body["read_at"] is None
+        assert body["is_read"] is False
 
     def test_persists_inbound_correlation_id(self, client: TestClient) -> None:
         correlation_id = "notification-create-correlation"
@@ -231,6 +234,210 @@ class TestBusinessNotificationEndpoints:
         response = client.post("/notifications/out-of-stock", json=payload)
 
         assert response.status_code == 422
+
+
+class TestRecipientNotificationReadModel:
+    """Recipient-facing notification history endpoints."""
+
+    def test_lists_only_authenticated_recipient_notifications(
+        self,
+        client: TestClient,
+    ) -> None:
+        user_id = str(uuid4())
+        other_user_id = str(uuid4())
+        first_response = client.post(
+            "/notifications",
+            json={
+                **_notification_payload("order:1:status:confirmed"),
+                "recipient_id": user_id,
+                "title": "Primera",
+            },
+        )
+        second_response = client.post(
+            "/notifications",
+            json={
+                **_notification_payload("order:2:status:confirmed"),
+                "recipient_id": user_id,
+                "title": "Segunda",
+            },
+        )
+        client.post(
+            "/notifications",
+            json={
+                **_notification_payload("order:3:status:confirmed"),
+                "recipient_id": other_user_id,
+            },
+        )
+
+        response = client.get(
+            "/notifications/me",
+            headers={"X-User-Id": user_id},
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["total"] == 2
+        assert body["limit"] == 20
+        assert body["offset"] == 0
+        assert [item["id"] for item in body["data"]] == [
+            second_response.json()["id"],
+            first_response.json()["id"],
+        ]
+        assert all(item["recipient_id"] == user_id for item in body["data"])
+        assert all(item["is_read"] is False for item in body["data"])
+
+    def test_lists_notifications_with_pagination(self, client: TestClient) -> None:
+        user_id = str(uuid4())
+        first_response = client.post(
+            "/notifications",
+            json={
+                **_notification_payload("order:4:status:confirmed"),
+                "recipient_id": user_id,
+            },
+        )
+        second_response = client.post(
+            "/notifications",
+            json={
+                **_notification_payload("order:5:status:confirmed"),
+                "recipient_id": user_id,
+            },
+        )
+
+        response = client.get(
+            "/notifications/me?limit=1&offset=1",
+            headers={"X-User-Id": user_id},
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["total"] == 2
+        assert body["limit"] == 1
+        assert body["offset"] == 1
+        assert [item["id"] for item in body["data"]] == [
+            first_response.json()["id"],
+        ]
+        assert second_response.json()["id"] != first_response.json()["id"]
+
+    def test_unread_count(self, client: TestClient) -> None:
+        user_id = str(uuid4())
+        client.post(
+            "/notifications",
+            json={
+                **_notification_payload("order:6:status:confirmed"),
+                "recipient_id": user_id,
+            },
+        )
+        read_response = client.post(
+            "/notifications",
+            json={
+                **_notification_payload("order:7:status:confirmed"),
+                "recipient_id": user_id,
+            },
+        )
+        client.patch(
+            f"/notifications/{read_response.json()['id']}/read",
+            headers={"X-User-Id": user_id},
+        )
+
+        response = client.get(
+            "/notifications/me/unread-count",
+            headers={"X-User-Id": user_id},
+        )
+
+        assert response.status_code == 200
+        assert response.json() == {"unread_count": 1}
+
+    def test_marks_notification_as_read_idempotently(
+        self,
+        client: TestClient,
+    ) -> None:
+        user_id = str(uuid4())
+        create_response = client.post(
+            "/notifications",
+            json={
+                **_notification_payload("order:8:status:confirmed"),
+                "recipient_id": user_id,
+            },
+        )
+        notification_id = create_response.json()["id"]
+
+        first_response = client.patch(
+            f"/notifications/{notification_id}/read",
+            headers={"X-User-Id": user_id},
+        )
+        second_response = client.patch(
+            f"/notifications/{notification_id}/read",
+            headers={"X-User-Id": user_id},
+        )
+
+        assert first_response.status_code == 200
+        assert second_response.status_code == 200
+        assert first_response.json()["is_read"] is True
+        assert second_response.json()["is_read"] is True
+        assert first_response.json()["read_at"] == second_response.json()["read_at"]
+
+    def test_cannot_mark_another_recipient_notification_as_read(
+        self,
+        client: TestClient,
+    ) -> None:
+        owner_id = str(uuid4())
+        other_user_id = str(uuid4())
+        create_response = client.post(
+            "/notifications",
+            json={
+                **_notification_payload("order:9:status:confirmed"),
+                "recipient_id": owner_id,
+            },
+        )
+
+        response = client.patch(
+            f"/notifications/{create_response.json()['id']}/read",
+            headers={"X-User-Id": other_user_id},
+        )
+
+        assert response.status_code == 404
+
+    def test_marks_all_notifications_as_read(self, client: TestClient) -> None:
+        user_id = str(uuid4())
+        other_user_id = str(uuid4())
+        for index in range(2):
+            client.post(
+                "/notifications",
+                json={
+                    **_notification_payload(f"order:read-all-{index}:status:confirmed"),
+                    "recipient_id": user_id,
+                },
+            )
+        client.post(
+            "/notifications",
+            json={
+                **_notification_payload("order:read-all-other:status:confirmed"),
+                "recipient_id": other_user_id,
+            },
+        )
+
+        response = client.patch(
+            "/notifications/read-all",
+            headers={"X-User-Id": user_id},
+        )
+        unread_response = client.get(
+            "/notifications/me/unread-count",
+            headers={"X-User-Id": user_id},
+        )
+        other_unread_response = client.get(
+            "/notifications/me/unread-count",
+            headers={"X-User-Id": other_user_id},
+        )
+
+        assert response.status_code == 200
+        assert response.json() == {"updated_count": 2}
+        assert unread_response.json() == {"unread_count": 0}
+        assert other_unread_response.json() == {"unread_count": 1}
+
+    def test_requires_authenticated_user_header(self, client: TestClient) -> None:
+        response = client.get("/notifications/me")
+
+        assert response.status_code == 401
 
 
 class TestNotificationWorker:

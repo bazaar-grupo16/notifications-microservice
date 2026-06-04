@@ -6,6 +6,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from src.core.observability import get_observability_correlation_id
+from src.core.utils import utc_now
 from src.models.notification import Notification
 from src.repositories.notification_repository import NotificationRepository
 from src.schemas.notification import (
@@ -135,4 +136,48 @@ class NotificationService:
                     "deep_link": f"bazaar://seller/products/{data.product_id}",
                 },
             )
+        )
+
+    def list_notifications_for_recipient(
+        self,
+        recipient_id: str,
+        *,
+        limit: int,
+        offset: int,
+    ) -> tuple[list[Notification], int]:
+        """Return a paginated notification list for a recipient."""
+        notifications = self._repository.list_by_recipient(
+            recipient_id,
+            limit=limit,
+            offset=offset,
+        )
+        total = self._repository.count_by_recipient(recipient_id)
+        return notifications, total
+
+    def count_unread_for_recipient(self, recipient_id: str) -> int:
+        """Return unread notification count for a recipient."""
+        return self._repository.count_unread_by_recipient(recipient_id)
+
+    def mark_notification_as_read(
+        self,
+        notification_id: int,
+        recipient_id: str,
+    ) -> Notification | None:
+        """Mark a recipient-owned notification as read."""
+        notification = self._repository.get_by_id_for_recipient(
+            notification_id,
+            recipient_id,
+        )
+        if notification is None:
+            return None
+        if notification.read_at is None:
+            notification.read_at = utc_now()
+            notification = self._repository.save(notification)
+        return notification
+
+    def mark_all_notifications_as_read(self, recipient_id: str) -> int:
+        """Mark all unread notifications for a recipient as read."""
+        return self._repository.mark_all_read_for_recipient(
+            recipient_id,
+            utc_now(),
         )
