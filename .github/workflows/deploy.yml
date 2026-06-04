@@ -165,6 +165,7 @@ jobs:
         run: |
           envsubst '${IMAGE_NAME} ${IMAGE_TAG}' \
             < k8s/app-deployment.yaml | kubectl apply -f - -n bazaar-dev
+          kubectl apply -f k8s/ingress.yaml -n bazaar-dev
 
       - name: Wait for rollout
         run: |
