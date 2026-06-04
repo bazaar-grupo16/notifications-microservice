@@ -47,3 +47,7 @@ class Notification(Base):
         DateTime(timezone=True),
         nullable=True,
     )
+    read_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )

@@ -1,6 +1,9 @@
-# Bazaar — Microservice Template
+# Bazaar — Notifications Microservice
 
-Template base para microservicios Python / FastAPI del ecosistema **Bazaar**.
+Microservicio de notificaciones para el ecosistema **Bazaar**. Recibe eventos
+internos desde otros microservicios, los persiste en PostgreSQL como cola e
+historial, los procesa con un worker liviano y expone endpoints para que la app
+pueda consultar y marcar notificaciones como leídas.
 
 ## Stack
 
@@ -98,8 +101,52 @@ doctl kubernetes cluster kubeconfig save <CLUSTER_ID>
 |--------|------|-------------|
 | GET | `/livez` | Liveness probe — siempre 200 |
 | GET | `/readyz` | Readiness probe — verifica conexión a DB |
+| GET | `/metrics` | Métricas Prometheus |
+| POST | `/notifications` | Crea una notificación interna genérica e idempotente |
+| POST | `/notifications/order-status-changed` | Crea notificación por cambio de estado de orden |
+| POST | `/notifications/low-stock` | Crea notificación de stock bajo para vendedor |
+| POST | `/notifications/out-of-stock` | Crea notificación de producto sin stock para vendedor |
+| GET | `/notifications/me` | Lista notificaciones del usuario autenticado por `X-User-Id` |
+| GET | `/notifications/me/unread-count` | Devuelve cantidad de notificaciones no leídas |
+| PATCH | `/notifications/{notification_id}/read` | Marca una notificación propia como leída |
+| PATCH | `/notifications/read-all` | Marca todas las notificaciones propias como leídas |
 | GET | `/docs` | Swagger UI (auto-generado) |
 | GET | `/redoc` | ReDoc (auto-generado) |
+
+## Modelo de notificaciones
+
+Cada notificación se guarda en la tabla `notifications` con:
+
+- `idempotency_key`: evita duplicados ante reintentos.
+- `notification_type`: `order_status_changed`, `low_stock` u `out_of_stock`.
+- `recipient_id`: usuario comprador o vendedor que debe ver la notificación.
+- `status`: estado interno del worker (`pending`, `sent`, `failed`).
+- `read_at`: estado de presentación; `NULL` significa no leída.
+- `payload`: datos de navegación como `deep_link`, `order_id` o `product_id`.
+
+El worker procesa notificaciones `pending`, simula el envío y las marca como
+`sent`. Si falla, reintenta hasta `NOTIFICATION_MAX_ATTEMPTS` y luego marca
+`failed`. La lectura por parte del usuario no modifica `status`; solo setea
+`read_at`.
+
+### Contratos internos
+
+`orders-service` llama a `/notifications/order-status-changed` cuando una orden
+o item cambia de estado. `inventory-service` llama a `/notifications/low-stock`
+o `/notifications/out-of-stock` cuando el stock cruza los umbrales configurados.
+
+### Historial para la app
+
+La app consulta `GET /notifications/me` usando el header `X-User-Id` inyectado
+por el gateway/auth. Esto permite mostrar campanita, historial y contador de no
+leídas aun sin push real.
+
+### Camino futuro con FCM
+
+Firebase Cloud Messaging no reemplaza el historial. En una etapa posterior la
+app podría registrar device tokens, `notifications-service` asociarlos al usuario
+y el worker enviar push vía FCM. Al abrir el push, la app seguiría consultando
+`GET /notifications/me` para mostrar el estado persistido.
 
 ## Tests
 
@@ -186,6 +233,15 @@ Hay dos pipelines de GitHub Actions:
 ## Conexión a la base de datos
 
 Al iniciar, la aplicación espera a que la base de datos esté disponible usando **backoff exponencial** (1s → 2s → 4s → … hasta 30s por intento, máximo 5 minutos en total) antes de ejecutar las migraciones y aceptar tráfico. Esto evita crasheos durante el arranque del pod cuando la BD aún está inicializándose.
+
+### Migraciones manuales existentes
+
+Para bases ya desplegadas, aplicar los scripts incrementales cuando corresponda:
+
+```bash
+psql "$DATABASE_URL" -f scripts/add_correlation_id_column.sql
+psql "$DATABASE_URL" -f scripts/add_read_at_column.sql
+```
 
 ## Extender el template
 

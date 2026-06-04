@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import Session
 
 from src.models.notification import Notification
@@ -18,6 +18,18 @@ class NotificationRepository:
         """Return a notification matching the idempotency key, if it exists."""
         stmt = select(Notification).where(
             Notification.idempotency_key == idempotency_key
+        )
+        return self._db.execute(stmt).scalar_one_or_none()
+
+    def get_by_id_for_recipient(
+        self,
+        notification_id: int,
+        recipient_id: str,
+    ) -> Notification | None:
+        """Return a notification owned by the recipient, if it exists."""
+        stmt = select(Notification).where(
+            Notification.id == notification_id,
+            Notification.recipient_id == recipient_id,
         )
         return self._db.execute(stmt).scalar_one_or_none()
 
@@ -43,6 +55,52 @@ class NotificationRepository:
             .limit(limit)
         )
         return list(self._db.execute(stmt).scalars().all())
+
+    def list_by_recipient(
+        self,
+        recipient_id: str,
+        *,
+        limit: int,
+        offset: int,
+    ) -> list[Notification]:
+        """Return notifications for a recipient ordered by newest first."""
+        stmt = (
+            select(Notification)
+            .where(Notification.recipient_id == recipient_id)
+            .order_by(Notification.created_at.desc(), Notification.id.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+        return list(self._db.execute(stmt).scalars().all())
+
+    def count_by_recipient(self, recipient_id: str) -> int:
+        """Return total notifications for a recipient."""
+        stmt = select(func.count()).select_from(Notification).where(
+            Notification.recipient_id == recipient_id
+        )
+        return self._db.execute(stmt).scalar_one()
+
+    def count_unread_by_recipient(self, recipient_id: str) -> int:
+        """Return unread notifications count for a recipient."""
+        stmt = select(func.count()).select_from(Notification).where(
+            Notification.recipient_id == recipient_id,
+            Notification.read_at.is_(None),
+        )
+        return self._db.execute(stmt).scalar_one()
+
+    def mark_all_read_for_recipient(self, recipient_id: str, read_at: datetime) -> int:
+        """Mark all unread notifications for a recipient as read."""
+        stmt = (
+            update(Notification)
+            .where(
+                Notification.recipient_id == recipient_id,
+                Notification.read_at.is_(None),
+            )
+            .values(read_at=read_at, updated_at=read_at)
+        )
+        result = self._db.execute(stmt)
+        self._db.commit()
+        return result.rowcount or 0
 
     def save(self, notification: Notification) -> Notification:
         """Persist changes to an existing notification."""
