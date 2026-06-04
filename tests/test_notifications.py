@@ -9,7 +9,11 @@ from fastapi.testclient import TestClient
 from src.core.database import SessionLocal
 from src.core.observability import CORRELATION_ID_HEADER
 from src.models.notification import Notification
-from src.services.notification_worker import process_pending_notifications
+from src.models.notification_push_token import NotificationPushToken
+from src.services.notification_worker import (
+    ExpoPushNotificationSender,
+    process_pending_notifications,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -17,6 +21,7 @@ def _clean_notifications() -> None:
     """Ensure each test starts without queued notifications."""
     with SessionLocal() as db:
         db.execute(delete(Notification))
+        db.execute(delete(NotificationPushToken))
         db.commit()
 
 
@@ -440,6 +445,106 @@ class TestRecipientNotificationReadModel:
         assert response.status_code == 401
 
 
+class TestPushTokens:
+    """Push token registration endpoint tests."""
+
+    def test_registers_push_token_for_authenticated_recipient(
+        self,
+        client: TestClient,
+    ) -> None:
+        user_id = str(uuid4())
+
+        response = client.post(
+            "/notifications/push-tokens",
+            json={
+                "expo_push_token": "ExponentPushToken[token-1]",
+                "platform": "android",
+            },
+            headers={"X-User-Id": user_id},
+        )
+
+        assert response.status_code == 201
+        body = response.json()
+        assert body["recipient_id"] == user_id
+        assert body["expo_push_token"] == "ExponentPushToken[token-1]"
+        assert body["platform"] == "android"
+        assert body["enabled"] is True
+
+    def test_requires_authentication_to_register_push_token(
+        self,
+        client: TestClient,
+    ) -> None:
+        response = client.post(
+            "/notifications/push-tokens",
+            json={
+                "expo_push_token": "ExponentPushToken[token-2]",
+                "platform": "ios",
+            },
+        )
+
+        assert response.status_code == 401
+
+    def test_registering_same_token_is_idempotent(self, client: TestClient) -> None:
+        user_id = str(uuid4())
+        payload = {
+            "expo_push_token": "ExponentPushToken[token-3]",
+            "platform": "android",
+        }
+
+        first_response = client.post(
+            "/notifications/push-tokens",
+            json=payload,
+            headers={"X-User-Id": user_id},
+        )
+        second_response = client.post(
+            "/notifications/push-tokens",
+            json=payload,
+            headers={"X-User-Id": user_id},
+        )
+
+        assert first_response.status_code == 201
+        assert second_response.status_code == 201
+        assert first_response.json()["id"] == second_response.json()["id"]
+
+    def test_disables_recipient_push_token(self, client: TestClient) -> None:
+        user_id = str(uuid4())
+        token = "ExponentPushToken[token-4]"
+        client.post(
+            "/notifications/push-tokens",
+            json={"expo_push_token": token, "platform": "android"},
+            headers={"X-User-Id": user_id},
+        )
+
+        response = client.delete(
+            f"/notifications/push-tokens/{token}",
+            headers={"X-User-Id": user_id},
+        )
+
+        assert response.status_code == 200
+        assert response.json() == {"disabled": True}
+
+    def test_does_not_disable_another_recipient_token(
+        self,
+        client: TestClient,
+    ) -> None:
+        owner_id = str(uuid4())
+        other_user_id = str(uuid4())
+        token = "ExponentPushToken[token-5]"
+        client.post(
+            "/notifications/push-tokens",
+            json={"expo_push_token": token, "platform": "android"},
+            headers={"X-User-Id": owner_id},
+        )
+
+        response = client.delete(
+            f"/notifications/push-tokens/{token}",
+            headers={"X-User-Id": other_user_id},
+        )
+
+        assert response.status_code == 200
+        assert response.json() == {"disabled": False}
+
+
 class TestNotificationWorker:
     """Pending notification worker tests."""
 
@@ -521,3 +626,148 @@ class TestNotificationWorker:
         assert notification.last_error == "push provider unavailable"
         assert notification.next_retry_at is None
         assert notification.sent_at is None
+
+    def test_expo_sender_marks_notification_as_sent(
+        self,
+        client: TestClient,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        user_id = str(uuid4())
+        client.post(
+            "/notifications/push-tokens",
+            json={
+                "expo_push_token": "ExponentPushToken[token-6]",
+                "platform": "android",
+            },
+            headers={"X-User-Id": user_id},
+        )
+        response = client.post(
+            "/notifications",
+            json={**_notification_payload("order:10:status:sent"), "recipient_id": user_id},
+        )
+
+        class FakeResponse:
+            def raise_for_status(self) -> None:
+                return None
+
+            def json(self) -> dict:
+                return {"data": [{"status": "ok", "id": "ticket-1"}]}
+
+        def fake_post(*args, **kwargs) -> FakeResponse:
+            return FakeResponse()
+
+        monkeypatch.setattr("src.services.notification_worker.httpx.post", fake_post)
+
+        with SessionLocal() as db:
+            processed = process_pending_notifications(
+                db,
+                sender=ExpoPushNotificationSender(db),
+            )
+
+        notification = _get_notification(response.json()["id"])
+        assert processed == 1
+        assert notification.status == "sent"
+
+    def test_expo_sender_disables_permanent_invalid_token(
+        self,
+        client: TestClient,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        user_id = str(uuid4())
+        token = "ExponentPushToken[token-7]"
+        client.post(
+            "/notifications/push-tokens",
+            json={"expo_push_token": token, "platform": "android"},
+            headers={"X-User-Id": user_id},
+        )
+        response = client.post(
+            "/notifications",
+            json={**_notification_payload("order:11:status:sent"), "recipient_id": user_id},
+        )
+
+        class FakeResponse:
+            def raise_for_status(self) -> None:
+                return None
+
+            def json(self) -> dict:
+                return {
+                    "data": [
+                        {
+                            "status": "error",
+                            "message": "Device not registered",
+                            "details": {"error": "DeviceNotRegistered"},
+                        }
+                    ]
+                }
+
+        monkeypatch.setattr(
+            "src.services.notification_worker.httpx.post",
+            lambda *args, **kwargs: FakeResponse(),
+        )
+
+        with SessionLocal() as db:
+            processed = process_pending_notifications(
+                db,
+                sender=ExpoPushNotificationSender(db),
+            )
+            stored_token = db.execute(
+                select(NotificationPushToken).where(
+                    NotificationPushToken.expo_push_token == token
+                )
+            ).scalar_one()
+
+        notification = _get_notification(response.json()["id"])
+        assert processed == 1
+        assert notification.status == "sent"
+        assert stored_token is not None
+        assert stored_token.enabled is False
+
+    def test_expo_sender_retries_transient_errors(
+        self,
+        client: TestClient,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        user_id = str(uuid4())
+        client.post(
+            "/notifications/push-tokens",
+            json={
+                "expo_push_token": "ExponentPushToken[token-8]",
+                "platform": "android",
+            },
+            headers={"X-User-Id": user_id},
+        )
+        response = client.post(
+            "/notifications",
+            json={**_notification_payload("order:12:status:sent"), "recipient_id": user_id},
+        )
+
+        class FakeResponse:
+            def raise_for_status(self) -> None:
+                return None
+
+            def json(self) -> dict:
+                return {
+                    "data": [
+                        {
+                            "status": "error",
+                            "message": "Expo temporarily unavailable",
+                        }
+                    ]
+                }
+
+        monkeypatch.setattr(
+            "src.services.notification_worker.httpx.post",
+            lambda *args, **kwargs: FakeResponse(),
+        )
+
+        with SessionLocal() as db:
+            processed = process_pending_notifications(
+                db,
+                sender=ExpoPushNotificationSender(db),
+            )
+
+        notification = _get_notification(response.json()["id"])
+        assert processed == 1
+        assert notification.status == "pending"
+        assert notification.last_error == "Expo temporarily unavailable"
+        assert notification.next_retry_at is not None

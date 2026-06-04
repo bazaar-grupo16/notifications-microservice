@@ -119,3 +119,30 @@ class NotificationsReadAllResponse(BaseModel):
     """Bulk read operation response."""
 
     updated_count: int
+
+
+class PushTokenCreate(BaseModel):
+    """Request body for registering an Expo push token."""
+
+    expo_push_token: str = Field(min_length=1, max_length=255)
+    platform: str = Field(min_length=1, max_length=32)
+
+
+class PushTokenResponse(BaseModel):
+    """Response body for a registered push token."""
+
+    id: int
+    recipient_id: str
+    expo_push_token: str
+    platform: str
+    enabled: bool
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class PushTokenDeleteResponse(BaseModel):
+    """Response body for push token deactivation."""
+
+    disabled: bool

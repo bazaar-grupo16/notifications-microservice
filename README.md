@@ -110,6 +110,8 @@ doctl kubernetes cluster kubeconfig save <CLUSTER_ID>
 | GET | `/notifications/me/unread-count` | Devuelve cantidad de notificaciones no leídas |
 | PATCH | `/notifications/{notification_id}/read` | Marca una notificación propia como leída |
 | PATCH | `/notifications/read-all` | Marca todas las notificaciones propias como leídas |
+| POST | `/notifications/push-tokens` | Registra un Expo Push Token del usuario autenticado |
+| DELETE | `/notifications/push-tokens/{token}` | Desactiva un Expo Push Token propio |
 | GET | `/docs` | Swagger UI (auto-generado) |
 | GET | `/redoc` | ReDoc (auto-generado) |
 
@@ -124,10 +126,10 @@ Cada notificación se guarda en la tabla `notifications` con:
 - `read_at`: estado de presentación; `NULL` significa no leída.
 - `payload`: datos de navegación como `deep_link`, `order_id` o `product_id`.
 
-El worker procesa notificaciones `pending`, simula el envío y las marca como
-`sent`. Si falla, reintenta hasta `NOTIFICATION_MAX_ATTEMPTS` y luego marca
-`failed`. La lectura por parte del usuario no modifica `status`; solo setea
-`read_at`.
+El worker procesa notificaciones `pending` y las marca como `sent` cuando el
+sender configurado responde correctamente. Si falla por un error transitorio,
+reintenta hasta `NOTIFICATION_MAX_ATTEMPTS` y luego marca `failed`. La lectura
+por parte del usuario no modifica `status`; solo setea `read_at`.
 
 ### Contratos internos
 
@@ -148,6 +150,8 @@ públicas autenticadas:
 - `GET /notifications/me/unread-count`
 - `PATCH /notifications/{notification_id}/read`
 - `PATCH /notifications/read-all`
+- `POST /notifications/push-tokens`
+- `DELETE /notifications/push-tokens/{token}`
 
 El Ingress valida el JWT contra `auth-service /validate` y reenvía `X-User-ID`
 al pod. Desde la app se consume con `Authorization: Bearer <token>`:
@@ -161,12 +165,28 @@ Los endpoints `POST /notifications/*` no se exponen por Ingress. Siguen siendo
 internos y se consumen únicamente dentro del cluster vía
 `http://notifications-service`.
 
-### Camino futuro con FCM
+### Push real con Expo
 
-Firebase Cloud Messaging no reemplaza el historial. En una etapa posterior la
-app podría registrar device tokens, `notifications-service` asociarlos al usuario
-y el worker enviar push vía FCM. Al abrir el push, la app seguiría consultando
-`GET /notifications/me` para mostrar el estado persistido.
+La app Expo registra su Expo Push Token con
+`POST /notifications/push-tokens`. El token queda asociado al `recipient_id` en
+la tabla `notification_push_tokens`, que pertenece al dominio de notifications.
+
+Cuando `NOTIFICATION_SENDER=expo`, el worker envía cada notificación pendiente a
+Expo Push API (`EXPO_PUSH_API_URL`). Expo se encarga de enrutar hacia FCM/APNs
+según la plataforma del dispositivo. Si Expo responde que un token ya no es
+válido, el servicio lo desactiva para no seguir intentando envíos inútiles.
+
+El push no reemplaza el historial: solo avisa en tiempo real. La app sigue
+consultando `GET /notifications/me` para mostrar la lista persistida y el estado
+de lectura.
+
+Variables relevantes:
+
+| Variable | Descripción |
+|----------|-------------|
+| `NOTIFICATION_SENDER` | `simulated` para desarrollo local o `expo` para push real |
+| `EXPO_PUSH_API_URL` | URL de Expo Push API |
+| `EXPO_PUSH_ACCESS_TOKEN` | Token opcional de Expo si se decide proteger el envío |
 
 ## Tests
 
@@ -262,6 +282,7 @@ Para bases ya desplegadas, aplicar los scripts incrementales cuando corresponda:
 ```bash
 psql "$DATABASE_URL" -f scripts/add_correlation_id_column.sql
 psql "$DATABASE_URL" -f scripts/add_read_at_column.sql
+psql "$DATABASE_URL" -f scripts/create_push_tokens_table.sql
 ```
 
 ## Extender el template
