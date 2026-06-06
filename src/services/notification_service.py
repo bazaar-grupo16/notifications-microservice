@@ -14,6 +14,7 @@ from src.schemas.notification import (
     NotificationCreate,
     NotificationType,
     OrderStatusChangedNotificationCreate,
+    OrderItemStatusChangedNotificationCreate,
     OutOfStockNotificationCreate,
 )
 
@@ -84,6 +85,31 @@ class NotificationService:
                 recipient_id=data.buyer_id,
                 title="Estado de orden actualizado",
                 body=f"Tu orden {data.order_id} cambió a {data.new_status}.",
+                payload=payload,
+            )
+        )
+
+    def create_order_item_status_changed_notification(
+        self,
+        data: OrderItemStatusChangedNotificationCreate,
+    ) -> NotificationCreationResult:
+        """Create a notification for an order item status change."""
+        payload = {
+            "order_id": data.order_id,
+            "item": data.item,
+            "new_status": data.new_status,
+            "deep_link": f"bazaar://orders/{data.order_id}",
+        }
+        if data.tracking_code is not None:
+            payload["tracking_code"] = data.tracking_code
+
+        return self.create_notification(
+            NotificationCreate(
+                idempotency_key=f"order_item:{data.order_id}:{data.item}:status:{data.new_status}",
+                type=NotificationType.ORDER_ITEM_STATUS_CHANGED,
+                recipient_id=data.buyer_id,
+                title="Estado de un ítem de tu orden actualizado",
+                body=f"El ítem {data.item} de tu orden cambió a {data.new_status}.",
                 payload=payload,
             )
         )

@@ -45,6 +45,16 @@ class OrderStatusChangedNotificationCreate(BaseModel):
     tracking_code: str | None = Field(default=None, max_length=100)
 
 
+class OrderItemStatusChangedNotificationCreate(BaseModel):
+    """Request body for an order item status change notification."""
+
+    order_id: str = Field(min_length=1, max_length=128)
+    item: str = Field(min_length=1, max_length=200)
+    buyer_id: str = Field(min_length=1, max_length=128)
+    new_status: str = Field(min_length=1, max_length=64)
+    tracking_code: str | None = Field(default=None, max_length=100)
+
+
 class LowStockNotificationCreate(BaseModel):
     """Request body for a low stock seller notification."""
 

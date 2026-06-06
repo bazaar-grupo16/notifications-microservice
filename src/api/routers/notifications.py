@@ -11,6 +11,7 @@ from src.schemas.notification import (
     NotificationsReadAllResponse,
     NotificationUnreadCountResponse,
     OrderStatusChangedNotificationCreate,
+    OrderItemStatusChangedNotificationCreate,
     OutOfStockNotificationCreate,
     PushTokenCreate,
     PushTokenDeleteResponse,
@@ -171,6 +172,21 @@ def create_order_status_changed_notification(
 ) -> NotificationResponse:
     """Persist an order status change notification event."""
     result = NotificationService(db).create_order_status_changed_notification(data)
+    return _response_from_result(result, response)
+
+
+@router.post(
+    "/order-item-status-changed",
+    response_model=NotificationResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_order_item_status_changed_notification(
+    data: OrderItemStatusChangedNotificationCreate,
+    response: Response,
+    db: DbSession,
+) -> NotificationResponse:
+    """Persist an order item status change notification event."""
+    result = NotificationService(db).create_order_item_status_changed_notification(data)
     return _response_from_result(result, response)
 
 
