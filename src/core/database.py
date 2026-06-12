@@ -6,10 +6,14 @@ The connection string is built from environment variables via
 """
 
 import logging
-import time
+import asyncio
 
-from sqlalchemy import create_engine, text
-from sqlalchemy.orm import DeclarativeBase, sessionmaker
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import (
+    async_sessionmaker,
+    create_async_engine,
+)
+from sqlalchemy.orm import DeclarativeBase
 
 from src.core.config import get_settings
 
@@ -17,15 +21,15 @@ from src.core.config import get_settings
 settings = get_settings()
 logger = logging.getLogger(__name__)
 
-engine = create_engine(
+engine = create_async_engine(
     settings.database_url,
     pool_pre_ping=True,
 )
 
-SessionLocal = sessionmaker(
-    autocommit=False,
+AsyncSessionLocal = async_sessionmaker(
     autoflush=False,
     bind=engine,
+    expire_on_commit=False,
 )
 
 
@@ -33,7 +37,7 @@ class Base(DeclarativeBase):
     """Declarative base class for all ORM models."""
 
 
-def check_db_connection() -> bool:
+async def check_db_connection() -> bool:
     """
     Attempt a lightweight query against the database.
 
@@ -43,8 +47,8 @@ def check_db_connection() -> bool:
         ``True`` if the database is reachable, ``False`` otherwise.
     """
     try:
-        with engine.connect() as conn:
-            conn.execute(text("SELECT 1"))
+        async with engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
         return True
     except Exception:
         return False
@@ -57,7 +61,7 @@ _DB_MAX_WAIT: float = 30.0       # ceiling for a single sleep interval
 _DB_TIMEOUT: float = 300.0       # total budget — give up after this many seconds
 
 
-def wait_for_db() -> None:
+async def wait_for_db() -> None:
     """
     Block until the database is reachable or the retry budget is exhausted.
 
@@ -72,17 +76,18 @@ def wait_for_db() -> None:
     RuntimeError
         If the database is still unreachable after ``_DB_TIMEOUT`` seconds.
     """
-    deadline = time.monotonic() + _DB_TIMEOUT
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + _DB_TIMEOUT
     wait = _DB_INITIAL_WAIT
     attempt = 0
 
     while True:
         attempt += 1
-        if check_db_connection():
+        if await check_db_connection():
             logger.info("Database is reachable (attempt %d).", attempt)
             return
 
-        remaining = deadline - time.monotonic()
+        remaining = deadline - loop.time()
         if remaining <= 0:
             raise RuntimeError(
                 f"Database unreachable after {_DB_TIMEOUT:.0f}s "
@@ -97,5 +102,5 @@ def wait_for_db() -> None:
             sleep_for,
             remaining,
         )
-        time.sleep(sleep_for)
+        await asyncio.sleep(sleep_for)
         wait = min(wait * _DB_BACKOFF_FACTOR, _DB_MAX_WAIT)

@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.observability import get_observability_correlation_id
 from src.core.utils import utc_now
@@ -30,16 +30,18 @@ class NotificationCreationResult:
 class NotificationService:
     """Application service for persisted notifications."""
 
-    def __init__(self, db: Session) -> None:
+    def __init__(self, db: AsyncSession) -> None:
         self._db = db
         self._repository = NotificationRepository(db)
 
-    def create_notification(
+    async def create_notification(
         self,
         data: NotificationCreate,
     ) -> NotificationCreationResult:
         """Create a pending notification, or return the existing one."""
-        existing = self._repository.get_by_idempotency_key(data.idempotency_key)
+        existing = await self._repository.get_by_idempotency_key(
+            data.idempotency_key
+        )
         if existing is not None:
             return NotificationCreationResult(notification=existing, created=False)
 
@@ -55,17 +57,19 @@ class NotificationService:
         )
 
         try:
-            created = self._repository.create(notification)
+            created = await self._repository.create(notification)
         except IntegrityError:
-            self._db.rollback()
-            existing = self._repository.get_by_idempotency_key(data.idempotency_key)
+            await self._db.rollback()
+            existing = await self._repository.get_by_idempotency_key(
+                data.idempotency_key
+            )
             if existing is None:
                 raise
             return NotificationCreationResult(notification=existing, created=False)
 
         return NotificationCreationResult(notification=created, created=True)
 
-    def create_order_status_changed_notification(
+    async def create_order_status_changed_notification(
         self,
         data: OrderStatusChangedNotificationCreate,
     ) -> NotificationCreationResult:
@@ -78,7 +82,7 @@ class NotificationService:
         if data.tracking_code is not None:
             payload["tracking_code"] = data.tracking_code
 
-        return self.create_notification(
+        return await self.create_notification(
             NotificationCreate(
                 idempotency_key=f"order:{data.order_id}:status:{data.new_status}",
                 type=NotificationType.ORDER_STATUS_CHANGED,
@@ -89,7 +93,7 @@ class NotificationService:
             )
         )
 
-    def create_order_item_status_changed_notification(
+    async def create_order_item_status_changed_notification(
         self,
         data: OrderItemStatusChangedNotificationCreate,
     ) -> NotificationCreationResult:
@@ -103,7 +107,7 @@ class NotificationService:
         if data.tracking_code is not None:
             payload["tracking_code"] = data.tracking_code
 
-        return self.create_notification(
+        return await self.create_notification(
             NotificationCreate(
                 idempotency_key=f"order_item:{data.order_id}:{data.item}:status:{data.new_status}",
                 type=NotificationType.ORDER_ITEM_STATUS_CHANGED,
@@ -114,12 +118,12 @@ class NotificationService:
             )
         )
 
-    def create_low_stock_notification(
+    async def create_low_stock_notification(
         self,
         data: LowStockNotificationCreate,
     ) -> NotificationCreationResult:
         """Create a notification for a product below its stock threshold."""
-        return self.create_notification(
+        return await self.create_notification(
             NotificationCreate(
                 idempotency_key=(
                     f"low_stock:{data.seller_id}:{data.product_id}:{data.threshold}"
@@ -142,12 +146,12 @@ class NotificationService:
             )
         )
 
-    def create_out_of_stock_notification(
+    async def create_out_of_stock_notification(
         self,
         data: OutOfStockNotificationCreate,
     ) -> NotificationCreationResult:
         """Create a notification for a product without stock."""
-        return self.create_notification(
+        return await self.create_notification(
             NotificationCreate(
                 idempotency_key=f"out_of_stock:{data.seller_id}:{data.product_id}",
                 type=NotificationType.OUT_OF_STOCK,
@@ -164,7 +168,7 @@ class NotificationService:
             )
         )
 
-    def list_notifications_for_recipient(
+    async def list_notifications_for_recipient(
         self,
         recipient_id: str,
         *,
@@ -172,25 +176,25 @@ class NotificationService:
         offset: int,
     ) -> tuple[list[Notification], int]:
         """Return a paginated notification list for a recipient."""
-        notifications = self._repository.list_by_recipient(
+        notifications = await self._repository.list_by_recipient(
             recipient_id,
             limit=limit,
             offset=offset,
         )
-        total = self._repository.count_by_recipient(recipient_id)
+        total = await self._repository.count_by_recipient(recipient_id)
         return notifications, total
 
-    def count_unread_for_recipient(self, recipient_id: str) -> int:
+    async def count_unread_for_recipient(self, recipient_id: str) -> int:
         """Return unread notification count for a recipient."""
-        return self._repository.count_unread_by_recipient(recipient_id)
+        return await self._repository.count_unread_by_recipient(recipient_id)
 
-    def mark_notification_as_read(
+    async def mark_notification_as_read(
         self,
         notification_id: int,
         recipient_id: str,
     ) -> Notification | None:
         """Mark a recipient-owned notification as read."""
-        notification = self._repository.get_by_id_for_recipient(
+        notification = await self._repository.get_by_id_for_recipient(
             notification_id,
             recipient_id,
         )
@@ -198,12 +202,12 @@ class NotificationService:
             return None
         if notification.read_at is None:
             notification.read_at = utc_now()
-            notification = self._repository.save(notification)
+            notification = await self._repository.save(notification)
         return notification
 
-    def mark_all_notifications_as_read(self, recipient_id: str) -> int:
+    async def mark_all_notifications_as_read(self, recipient_id: str) -> int:
         """Mark all unread notifications for a recipient as read."""
-        return self._repository.mark_all_read_for_recipient(
+        return await self._repository.mark_all_read_for_recipient(
             recipient_id,
             utc_now(),
         )

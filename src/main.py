@@ -17,7 +17,7 @@ from fastapi import FastAPI
 from src.api.health import router as health_router
 from src.api.routers.notifications import router as notifications_router
 from src.core.config import get_settings
-from src.core.database import Base, SessionLocal, engine, wait_for_db
+from src.core.database import AsyncSessionLocal, Base, engine, wait_for_db
 from src.core.logging import setup_logging
 from src.core.observability import CorrelationIdMiddleware
 from src.core.telemetry import initialize_prometheus_metrics, router as metrics_router
@@ -31,22 +31,17 @@ logger = logging.getLogger(__name__)
 initialize_prometheus_metrics()
 
 
-def _process_notifications_once() -> int:
-    """Run one worker batch using an isolated DB session."""
-    with SessionLocal() as db:
-        return process_pending_notifications(
-            db,
-            limit=settings.NOTIFICATION_WORKER_BATCH_SIZE,
-            max_attempts=settings.NOTIFICATION_MAX_ATTEMPTS,
-            retry_delay_seconds=settings.NOTIFICATION_RETRY_DELAY_SECONDS,
-        )
-
-
 async def _notification_worker_loop() -> None:
     """Periodically process pending notifications in the app process."""
     while True:
         try:
-            processed = await asyncio.to_thread(_process_notifications_once)
+            async with AsyncSessionLocal() as db:
+                processed = await process_pending_notifications(
+                    db,
+                    limit=settings.NOTIFICATION_WORKER_BATCH_SIZE,
+                    max_attempts=settings.NOTIFICATION_MAX_ATTEMPTS,
+                    retry_delay_seconds=settings.NOTIFICATION_RETRY_DELAY_SECONDS,
+                )
             if processed:
                 logger.info("Processed %d pending notifications", processed)
         except Exception:
@@ -60,9 +55,10 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     setup_logging()
     logger.info("Starting %s", settings.APP_NAME)
     # Wait for the database before creating tables.
-    wait_for_db()
+    await wait_for_db()
     # Create tables (dev convenience — use Alembic in production).
-    Base.metadata.create_all(bind=engine)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
     worker_task: asyncio.Task[None] | None = None
     if settings.NOTIFICATION_WORKER_ENABLED:
         worker_task = asyncio.create_task(_notification_worker_loop())
@@ -76,6 +72,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
                 await worker_task
             except asyncio.CancelledError:
                 logger.info("Notification worker stopped")
+        await engine.dispose()
         logger.info("Shutting down %s", settings.APP_NAME)
 
 

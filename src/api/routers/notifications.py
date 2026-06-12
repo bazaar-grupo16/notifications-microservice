@@ -38,14 +38,16 @@ def _response_from_result(
     "/me",
     response_model=NotificationListResponse,
 )
-def list_my_notifications(
+async def list_my_notifications(
     db: DbSession,
     current_user_id: CurrentUserId,
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
 ) -> NotificationListResponse:
     """List notifications for the authenticated recipient."""
-    notifications, total = NotificationService(db).list_notifications_for_recipient(
+    notifications, total = await NotificationService(
+        db
+    ).list_notifications_for_recipient(
         str(current_user_id),
         limit=limit,
         offset=offset,
@@ -62,12 +64,12 @@ def list_my_notifications(
     "/me/unread-count",
     response_model=NotificationUnreadCountResponse,
 )
-def get_my_unread_count(
+async def get_my_unread_count(
     db: DbSession,
     current_user_id: CurrentUserId,
 ) -> NotificationUnreadCountResponse:
     """Return unread notifications count for the authenticated recipient."""
-    unread_count = NotificationService(db).count_unread_for_recipient(
+    unread_count = await NotificationService(db).count_unread_for_recipient(
         str(current_user_id)
     )
     return NotificationUnreadCountResponse(unread_count=unread_count)
@@ -77,12 +79,12 @@ def get_my_unread_count(
     "/read-all",
     response_model=NotificationsReadAllResponse,
 )
-def mark_all_my_notifications_as_read(
+async def mark_all_my_notifications_as_read(
     db: DbSession,
     current_user_id: CurrentUserId,
 ) -> NotificationsReadAllResponse:
     """Mark all authenticated recipient notifications as read."""
-    updated_count = NotificationService(db).mark_all_notifications_as_read(
+    updated_count = await NotificationService(db).mark_all_notifications_as_read(
         str(current_user_id)
     )
     return NotificationsReadAllResponse(updated_count=updated_count)
@@ -92,13 +94,13 @@ def mark_all_my_notifications_as_read(
     "/{notification_id}/read",
     response_model=NotificationResponse,
 )
-def mark_my_notification_as_read(
+async def mark_my_notification_as_read(
     notification_id: int,
     db: DbSession,
     current_user_id: CurrentUserId,
 ) -> NotificationResponse:
     """Mark one authenticated recipient notification as read."""
-    notification = NotificationService(db).mark_notification_as_read(
+    notification = await NotificationService(db).mark_notification_as_read(
         notification_id,
         str(current_user_id),
     )
@@ -115,13 +117,13 @@ def mark_my_notification_as_read(
     response_model=PushTokenResponse,
     status_code=status.HTTP_201_CREATED,
 )
-def register_my_push_token(
+async def register_my_push_token(
     data: PushTokenCreate,
     db: DbSession,
     current_user_id: CurrentUserId,
 ) -> PushTokenResponse:
     """Register or reactivate an Expo push token for the authenticated recipient."""
-    push_token = PushTokenService(db).register_push_token(
+    push_token = await PushTokenService(db).register_push_token(
         str(current_user_id),
         data,
     )
@@ -132,13 +134,13 @@ def register_my_push_token(
     "/push-tokens/{expo_push_token}",
     response_model=PushTokenDeleteResponse,
 )
-def disable_my_push_token(
+async def disable_my_push_token(
     expo_push_token: str,
     db: DbSession,
     current_user_id: CurrentUserId,
 ) -> PushTokenDeleteResponse:
     """Disable a recipient-owned Expo push token."""
-    disabled = PushTokenService(db).disable_push_token(
+    disabled = await PushTokenService(db).disable_push_token(
         str(current_user_id),
         expo_push_token,
     )
@@ -150,13 +152,13 @@ def disable_my_push_token(
     response_model=NotificationResponse,
     status_code=status.HTTP_201_CREATED,
 )
-def create_notification(
+async def create_notification(
     data: NotificationCreate,
     response: Response,
     db: DbSession,
 ) -> NotificationResponse:
     """Persist a notification event idempotently."""
-    result = NotificationService(db).create_notification(data)
+    result = await NotificationService(db).create_notification(data)
     return _response_from_result(result, response)
 
 
@@ -165,13 +167,15 @@ def create_notification(
     response_model=NotificationResponse,
     status_code=status.HTTP_201_CREATED,
 )
-def create_order_status_changed_notification(
+async def create_order_status_changed_notification(
     data: OrderStatusChangedNotificationCreate,
     response: Response,
     db: DbSession,
 ) -> NotificationResponse:
     """Persist an order status change notification event."""
-    result = NotificationService(db).create_order_status_changed_notification(data)
+    result = await NotificationService(db).create_order_status_changed_notification(
+        data
+    )
     return _response_from_result(result, response)
 
 
@@ -180,13 +184,15 @@ def create_order_status_changed_notification(
     response_model=NotificationResponse,
     status_code=status.HTTP_201_CREATED,
 )
-def create_order_item_status_changed_notification(
+async def create_order_item_status_changed_notification(
     data: OrderItemStatusChangedNotificationCreate,
     response: Response,
     db: DbSession,
 ) -> NotificationResponse:
     """Persist an order item status change notification event."""
-    result = NotificationService(db).create_order_item_status_changed_notification(data)
+    result = await NotificationService(
+        db
+    ).create_order_item_status_changed_notification(data)
     return _response_from_result(result, response)
 
 
@@ -195,13 +201,13 @@ def create_order_item_status_changed_notification(
     response_model=NotificationResponse,
     status_code=status.HTTP_201_CREATED,
 )
-def create_low_stock_notification(
+async def create_low_stock_notification(
     data: LowStockNotificationCreate,
     response: Response,
     db: DbSession,
 ) -> NotificationResponse:
     """Persist a low stock notification event."""
-    result = NotificationService(db).create_low_stock_notification(data)
+    result = await NotificationService(db).create_low_stock_notification(data)
     return _response_from_result(result, response)
 
 
@@ -210,11 +216,11 @@ def create_low_stock_notification(
     response_model=NotificationResponse,
     status_code=status.HTTP_201_CREATED,
 )
-def create_out_of_stock_notification(
+async def create_out_of_stock_notification(
     data: OutOfStockNotificationCreate,
     response: Response,
     db: DbSession,
 ) -> NotificationResponse:
     """Persist an out-of-stock notification event."""
-    result = NotificationService(db).create_out_of_stock_notification(data)
+    result = await NotificationService(db).create_out_of_stock_notification(data)
     return _response_from_result(result, response)

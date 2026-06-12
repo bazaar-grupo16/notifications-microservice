@@ -4,23 +4,20 @@ FastAPI dependencies for dependency injection.
 Add shared dependencies here (e.g. database sessions, auth context).
 """
 
-from collections.abc import Generator
+from collections.abc import AsyncGenerator
 from typing import Annotated
 from uuid import UUID
 
 from fastapi import Depends, Header, HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.core.database import SessionLocal
+from src.core.database import AsyncSessionLocal
 
 
-def _get_db() -> Generator[Session, None, None]:
+async def _get_db() -> AsyncGenerator[AsyncSession, None]:
     """Yield a SQLAlchemy session and ensure it is closed afterwards."""
-    db = SessionLocal()
-    try:
+    async with AsyncSessionLocal() as db:
         yield db
-    finally:
-        db.close()
 
 
 def _get_current_user_id(x_user_id: str | None = Header(None)) -> UUID:
@@ -40,5 +37,5 @@ def _get_current_user_id(x_user_id: str | None = Header(None)) -> UUID:
 
 
 # Re-usable annotated dependency for route signatures.
-DbSession = Annotated[Session, Depends(_get_db)]
+DbSession = Annotated[AsyncSession, Depends(_get_db)]
 CurrentUserId = Annotated[UUID, Depends(_get_current_user_id)]

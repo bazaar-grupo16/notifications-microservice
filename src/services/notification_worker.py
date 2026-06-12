@@ -5,7 +5,7 @@ from datetime import timedelta
 from typing import Protocol
 
 import httpx
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.config import get_settings
 from src.core.utils import utc_now
@@ -31,14 +31,14 @@ def _notification_log_context(notification: Notification) -> dict[str, object]:
 class NotificationSender(Protocol):
     """Sender interface used by the worker."""
 
-    def send(self, notification: Notification) -> None:
+    async def send(self, notification: Notification) -> None:
         """Send a notification."""
 
 
 class SimulatedNotificationSender:
     """Development sender used until push integration is added."""
 
-    def send(self, notification: Notification) -> None:
+    async def send(self, notification: Notification) -> None:
         """Simulate notification delivery."""
         logger.info(
             "Simulated notification delivery",
@@ -56,14 +56,21 @@ class ExpoPushNotificationSender:
         "MessageRateExceeded",
     }
 
-    def __init__(self, db: Session) -> None:
+    def __init__(
+        self,
+        db: AsyncSession,
+        http_client: httpx.AsyncClient | None = None,
+    ) -> None:
         self._db = db
         self._push_tokens = PushTokenRepository(db)
         self._settings = get_settings()
+        self._http_client = http_client
 
-    def send(self, notification: Notification) -> None:
+    async def send(self, notification: Notification) -> None:
         """Send a notification to all enabled recipient tokens."""
-        tokens = self._push_tokens.list_enabled_by_recipient(notification.recipient_id)
+        tokens = await self._push_tokens.list_enabled_by_recipient(
+            notification.recipient_id
+        )
         if not tokens:
             logger.info(
                 "No enabled push tokens for notification recipient",
@@ -86,12 +93,17 @@ class ExpoPushNotificationSender:
                 f"Bearer {self._settings.EXPO_PUSH_ACCESS_TOKEN}"
             )
 
-        response = httpx.post(
-            self._settings.EXPO_PUSH_API_URL,
-            json=messages,
-            headers=headers,
-            timeout=5.0,
-        )
+        client = self._http_client or httpx.AsyncClient()
+        try:
+            response = await client.post(
+                self._settings.EXPO_PUSH_API_URL,
+                json=messages,
+                headers=headers,
+                timeout=5.0,
+            )
+        finally:
+            if self._http_client is None:
+                await client.aclose()
         response.raise_for_status()
         payload = response.json()
         tickets = payload.get("data", payload)
@@ -113,7 +125,7 @@ class ExpoPushNotificationSender:
             message = str(ticket.get("message") or error_code or "Expo push failed")
             if error_code in self._PERMANENT_TOKEN_ERRORS:
                 token.enabled = False
-                self._push_tokens.save(token)
+                await self._push_tokens.save(token)
                 logger.warning(
                     "Disabled push token after permanent Expo error",
                     extra={
@@ -128,15 +140,15 @@ class ExpoPushNotificationSender:
             raise RuntimeError("; ".join(transient_errors))
 
 
-def _build_sender(db: Session) -> NotificationSender:
+def _build_sender(db: AsyncSession) -> NotificationSender:
     """Build the configured notification sender."""
     if get_settings().NOTIFICATION_SENDER.lower() == "expo":
         return ExpoPushNotificationSender(db)
     return SimulatedNotificationSender()
 
 
-def process_pending_notifications(
-    db: Session,
+async def process_pending_notifications(
+    db: AsyncSession,
     *,
     limit: int = 10,
     max_attempts: int = 3,
@@ -146,7 +158,7 @@ def process_pending_notifications(
     """Process pending notifications and return how many were handled."""
     repository = NotificationRepository(db)
     notification_sender = sender or _build_sender(db)
-    notifications = repository.list_pending(limit=limit, ready_at=utc_now())
+    notifications = await repository.list_pending(limit=limit, ready_at=utc_now())
 
     processed = 0
     for notification in notifications:
@@ -155,7 +167,7 @@ def process_pending_notifications(
         notification.next_retry_at = None
 
         try:
-            notification_sender.send(notification)
+            await notification_sender.send(notification)
         except Exception as exc:
             notification.last_error = str(exc)
             if notification.attempts >= max_attempts:
@@ -177,7 +189,7 @@ def process_pending_notifications(
                 extra=_notification_log_context(notification),
             )
 
-        repository.save(notification)
+        await repository.save(notification)
         processed += 1
 
     return processed
