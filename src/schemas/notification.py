@@ -19,6 +19,7 @@ class NotificationType(StrEnum):
     """Business notification types supported by the service."""
 
     ORDER_STATUS_CHANGED = "order_status_changed"
+    ORDER_ITEM_STATUS_CHANGED = "order_item_status_changed"
     LOW_STOCK = "low_stock"
     OUT_OF_STOCK = "out_of_stock"
 
