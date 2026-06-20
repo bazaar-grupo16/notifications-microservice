@@ -27,6 +27,25 @@ class NotificationCreationResult:
     created: bool
 
 
+STATUS_FRIENDLY_NAMES = {
+    # Order Statuses
+    "PENDIENTE_DE_PAGO": "pendiente de pago",
+    "CONFIRMADA": "confirmada",
+    "EN_PREPARACION": "en preparación",
+    "ENVIADA": "enviada",
+    "ENTREGADA": "entregada",
+    "PAGO_RECHAZADO": "pago rechazado",
+    "CANCELADA": "cancelada",
+    "REEMBOLSO_EN_PROCESO": "reembolso en proceso",
+    "REEMBOLSO_PROCESADO": "reembolso procesado",
+    # Item Statuses
+    "CONFIRMADO": "confirmado",
+    "ENVIADO": "enviado",
+    "ENTREGADO": "entregado",
+    "CANCELADO": "cancelado",
+}
+
+
 class NotificationService:
     """Application service for persisted notifications."""
 
@@ -79,13 +98,14 @@ class NotificationService:
             payload["tracking_code"] = data.tracking_code
 
         display_name = data.order_name or data.order_id
+        friendly_status = STATUS_FRIENDLY_NAMES.get(data.new_status, data.new_status)
         return self.create_notification(
             NotificationCreate(
                 idempotency_key=f"order:{data.order_id}:status:{data.new_status}",
                 type=NotificationType.ORDER_STATUS_CHANGED,
                 recipient_id=data.buyer_id,
                 title="Estado de orden actualizado",
-                body=f"Tu orden {display_name} cambió a {data.new_status}.",
+                body=f"Tu orden {display_name} cambió a {friendly_status}.",
                 payload=payload,
             )
         )
@@ -104,13 +124,19 @@ class NotificationService:
         if data.tracking_code is not None:
             payload["tracking_code"] = data.tracking_code
 
+        if data.new_status == "CANCELADO":
+            body = f"El ítem {data.item} de tu orden fue cancelado por el vendedor."
+        else:
+            friendly_status = STATUS_FRIENDLY_NAMES.get(data.new_status, data.new_status)
+            body = f"El ítem {data.item} de tu orden cambió a {friendly_status}."
+
         return self.create_notification(
             NotificationCreate(
                 idempotency_key=f"order_item:{data.order_id}:{data.item}:status:{data.new_status}",
                 type=NotificationType.ORDER_ITEM_STATUS_CHANGED,
                 recipient_id=data.buyer_id,
                 title="Estado de un ítem de tu orden actualizado",
-                body=f"El ítem {data.item} de tu orden cambió a {data.new_status}.",
+                body=body,
                 payload=payload,
             )
         )

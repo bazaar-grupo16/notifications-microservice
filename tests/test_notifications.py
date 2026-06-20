@@ -160,9 +160,31 @@ class TestBusinessNotificationEndpoints:
         assert body["type"] == "order_status_changed"
         assert body["recipient_id"] == "buyer-123"
         assert body["idempotency_key"] == "order:123e4567-e89b-12d3-a456-426614174000:status:EN_PREPARACION"
-        assert body["body"] == "Tu orden Laptop Gamer y Mouse cambió a EN_PREPARACION."
+        assert body["body"] == "Tu orden Laptop Gamer y Mouse cambió a en preparación."
         assert body["payload"]["order_id"] == "123e4567-e89b-12d3-a456-426614174000"
         assert body["payload"]["deep_link"] == "bazaar://orders/123e4567-e89b-12d3-a456-426614174000"
+
+    def test_creates_order_item_status_changed_notification_cancelled_by_seller(
+        self,
+        client: TestClient,
+    ) -> None:
+        payload = {
+            "order_id": "order-789",
+            "item": "Laptop Gamer",
+            "buyer_id": "buyer-123",
+            "new_status": "CANCELADO",
+        }
+
+        response = client.post("/notifications/order-item-status-changed", json=payload)
+
+        assert response.status_code == 201
+        body = response.json()
+        assert body["type"] == "order_item_status_changed"
+        assert body["recipient_id"] == "buyer-123"
+        assert body["body"] == "El ítem Laptop Gamer de tu orden fue cancelado por el vendedor."
+        assert body["payload"]["order_id"] == "order-789"
+        assert body["payload"]["item"] == "Laptop Gamer"
+        assert body["payload"]["new_status"] == "CANCELADO"
 
     def test_order_status_changed_is_idempotent(self, client: TestClient) -> None:
         payload = {
