@@ -43,6 +43,7 @@ class OrderStatusChangedNotificationCreate(BaseModel):
     order_id: str = Field(min_length=1, max_length=128)
     buyer_id: str = Field(min_length=1, max_length=128)
     new_status: str = Field(min_length=1, max_length=64)
+    order_name: str | None = Field(default=None, max_length=200)
     tracking_code: str | None = Field(default=None, max_length=100)
 
 

@@ -78,13 +78,14 @@ class NotificationService:
         if data.tracking_code is not None:
             payload["tracking_code"] = data.tracking_code
 
+        display_name = data.order_name or data.order_id
         return self.create_notification(
             NotificationCreate(
                 idempotency_key=f"order:{data.order_id}:status:{data.new_status}",
                 type=NotificationType.ORDER_STATUS_CHANGED,
                 recipient_id=data.buyer_id,
                 title="Estado de orden actualizado",
-                body=f"Tu orden {data.order_id} cambió a {data.new_status}.",
+                body=f"Tu orden {display_name} cambió a {data.new_status}.",
                 payload=payload,
             )
         )
